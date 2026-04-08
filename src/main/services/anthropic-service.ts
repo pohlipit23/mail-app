@@ -1,42 +1,38 @@
 /**
- * AnthropicService — Central wrapper for all Claude API calls.
+ * LLM Service — Central wrapper for all GLM-5.1 API calls via OpenAI-compatible endpoint.
  *
  * Three responsibilities:
- * 1. WRAP — Thin wrapper around anthropic.messages.create()
+ * 1. WRAP — Thin wrapper around openai.chat.completions.create()
  * 2. RETRY — Exponential backoff on transient errors (non-blocking async setTimeout)
  * 3. RECORD — Every call logged to llm_calls table for cost tracking
  *
  * REDACTION: Never records email body/subject. Only IDs and metadata.
+ *
+ * The file retains its original name (anthropic-service.ts) to minimize import churn
+ * across the codebase. All callers import from this path.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import type {
-  MessageCreateParamsNonStreaming,
-  Message,
-} from "@anthropic-ai/sdk/resources/messages";
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletion,
+} from "openai/resources/chat/completions";
 import { createLogger } from "./logger";
 import { randomUUID } from "crypto";
 
-const log = createLogger("anthropic");
+const log = createLogger("llm");
 
-// Approximate pricing per million tokens. Last updated: 2026-03-29.
-// These are approximate and will drift as Anthropic updates pricing.
-// TODO: Make updatable without code changes (config file or API).
+const ZAI_BASE_URL = "https://api.z.ai/api/paas/v4";
+
+// Approximate pricing per million tokens for GLM-5.1.
+// TODO: Update when Z.AI publishes official pricing.
 const PRICING: Record<
   string,
-  { input: number; output: number; cacheRead: number; cacheWrite: number }
+  { input: number; output: number }
 > = {
-  "claude-opus-4-20250514": { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
-  "claude-opus-4-6": { input: 15.0, output: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-4-5-20250929": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-haiku-4-5-20251001": { input: 0.8, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
-  // Older model IDs that may still be in use
-  "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-3-5-haiku-20241022": { input: 0.8, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
+  "glm-5.1": { input: 3.0, output: 15.0 },
 };
 
-// Default pricing for unknown models (use Sonnet pricing as a reasonable middle)
-const DEFAULT_PRICING = { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 };
+const DEFAULT_PRICING = { input: 3.0, output: 15.0 };
 
 interface RetryConfig {
   maxRetries: number;
@@ -75,7 +71,7 @@ export interface UsageStats {
   byCaller: Array<{ caller: string; costCents: number; calls: number }>;
 }
 
-interface CreateOptions {
+export interface CreateOptions {
   /** Which service is making this call, for cost attribution */
   caller: string;
   /** Optional email ID for tracing */
@@ -86,29 +82,34 @@ interface CreateOptions {
   timeoutMs?: number;
 }
 
-// Anthropic client — singleton for production, replaceable for testing
-let _anthropicClient: Anthropic | null = null;
-let _defaultClient: Anthropic | null = null;
+// OpenAI client — singleton for production, replaceable for testing
+let _client: OpenAI | null = null;
+let _defaultClient: OpenAI | null = null;
 
 /**
- * Replace the Anthropic client for testing. Pass null to reset.
- * The mock must have a `messages.create()` method matching the SDK.
+ * Replace the LLM client for testing. Pass null to reset.
+ * The mock must have a `chat.completions.create()` method matching the SDK.
  */
 export function _setClientForTesting(client: unknown): void {
-  _anthropicClient = client as Anthropic;
+  _client = client as OpenAI;
 }
 
 /**
- * Reset the cached default client, forcing a fresh Anthropic() on next call.
+ * Reset the cached default client, forcing a fresh OpenAI() on next call.
  * Call this when the API key changes (e.g. via Settings).
  */
 export function resetClient(): void {
   _defaultClient = null;
 }
 
-export function getClient(): Anthropic {
-  if (_anthropicClient) return _anthropicClient;
-  if (!_defaultClient) _defaultClient = new Anthropic();
+export function getClient(): OpenAI {
+  if (_client) return _client;
+  if (!_defaultClient) {
+    _defaultClient = new OpenAI({
+      apiKey: process.env.ZAI_API_KEY,
+      baseURL: ZAI_BASE_URL,
+    });
+  }
   return _defaultClient;
 }
 
@@ -165,17 +166,11 @@ function calculateCostCents(
   model: string,
   inputTokens: number,
   outputTokens: number,
-  cacheReadTokens: number,
-  cacheCreateTokens: number,
 ): number {
   const pricing = PRICING[model] || DEFAULT_PRICING;
-  // input_tokens from the API already excludes cache tokens — they're separate fields
   const inputCost = (inputTokens * pricing.input) / 1_000_000;
   const outputCost = (outputTokens * pricing.output) / 1_000_000;
-  const cacheReadCost = (cacheReadTokens * pricing.cacheRead) / 1_000_000;
-  const cacheWriteCost = (cacheCreateTokens * pricing.cacheWrite) / 1_000_000;
-  // Convert dollars to cents
-  return (inputCost + outputCost + cacheReadCost + cacheWriteCost) * 100;
+  return (inputCost + outputCost) * 100;
 }
 
 function recordCall(
@@ -185,24 +180,16 @@ function recordCall(
   accountId: string | null,
   inputTokens: number,
   outputTokens: number,
-  cacheReadTokens: number,
-  cacheCreateTokens: number,
   durationMs: number,
   success: boolean,
   errorMessage: string | null,
 ): void {
   if (!_insertStmt) {
-    log.warn("AnthropicService: database not initialized, skipping call recording");
+    log.warn("LLM Service: database not initialized, skipping call recording");
     return;
   }
 
-  const costCents = calculateCostCents(
-    model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreateTokens,
-  );
+  const costCents = calculateCostCents(model, inputTokens, outputTokens);
 
   try {
     _insertStmt.run(
@@ -213,8 +200,8 @@ function recordCall(
       accountId,
       inputTokens,
       outputTokens,
-      cacheReadTokens,
-      cacheCreateTokens,
+      0, // cache_read_tokens — GLM doesn't have prompt caching
+      0, // cache_create_tokens
       costCents,
       durationMs,
       success ? 1 : 0,
@@ -228,7 +215,7 @@ function recordCall(
 
 /**
  * Record a streaming call's cost after it completes.
- * Use this for calls that bypass createMessage() (e.g., anthropic.messages.stream()).
+ * Use this for calls that bypass createMessage() (e.g., streaming).
  */
 export function recordStreamingCall(
   model: string,
@@ -237,10 +224,8 @@ export function recordStreamingCall(
   durationMs: number,
   options?: { emailId?: string; accountId?: string },
 ): void {
-  const inputTokens = usage.input_tokens || 0;
-  const outputTokens = usage.output_tokens || 0;
-  const cacheReadTokens = usage.cache_read_input_tokens || 0;
-  const cacheCreateTokens = usage.cache_creation_input_tokens || 0;
+  const inputTokens = usage.prompt_tokens || usage.input_tokens || 0;
+  const outputTokens = usage.completion_tokens || usage.output_tokens || 0;
   recordCall(
     model,
     caller,
@@ -248,8 +233,6 @@ export function recordStreamingCall(
     options?.accountId || null,
     inputTokens,
     outputTokens,
-    cacheReadTokens,
-    cacheCreateTokens,
     durationMs,
     true,
     null,
@@ -261,23 +244,25 @@ function asyncSleep(ms: number): Promise<void> {
 }
 
 function getRetryCategory(error: unknown): string | null {
-  if (error instanceof Anthropic.RateLimitError) return "rate_limit";
-  if (error instanceof Anthropic.InternalServerError) return "server_error";
-  if (error instanceof Anthropic.APIConnectionError) return "connection";
-  // Check for 529 overloaded (comes as APIError with status 529)
-  if (error instanceof Anthropic.APIError && (error as { status?: number }).status === 529) {
+  if (error instanceof OpenAI.RateLimitError) return "rate_limit";
+  if (error instanceof OpenAI.InternalServerError) return "server_error";
+  if (error instanceof OpenAI.APIConnectionError) return "connection";
+  if (error instanceof OpenAI.APIError && (error as { status?: number }).status === 529) {
     return "server_error";
   }
   return null;
 }
 
 /**
- * Create a message using Claude API with retry and cost tracking.
+ * Create a chat completion using GLM-5.1 API with retry and cost tracking.
+ *
+ * This is the central entry point for all LLM calls. All callers pass
+ * OpenAI-compatible ChatCompletionCreateParams.
  */
 export async function createMessage(
-  params: MessageCreateParamsNonStreaming,
+  params: ChatCompletionCreateParamsNonStreaming,
   options: CreateOptions,
-): Promise<Message> {
+): Promise<ChatCompletion> {
   const { caller, emailId, accountId, timeoutMs } = options;
   const model = params.model;
   const startTime = Date.now();
@@ -286,13 +271,11 @@ export async function createMessage(
   let lastError: unknown = null;
   let totalAttempts = 0;
 
-  // Determine max retries across all categories
   const maxPossibleRetries = Math.max(...Object.values(RETRY_CONFIGS).map((c) => c.maxRetries));
 
   for (let attempt = 0; attempt <= maxPossibleRetries; attempt++) {
     totalAttempts = attempt + 1;
 
-    // Per-attempt timeout so retries get fresh abort controllers
     let abortController: AbortController | undefined;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs) {
@@ -301,16 +284,14 @@ export async function createMessage(
     }
 
     try {
-      const response = await client.messages.create(params, {
+      const response = await client.chat.completions.create(params, {
         signal: abortController?.signal,
       });
 
       // Success — record and return
-      const usage = response.usage as unknown as Record<string, number>;
-      const inputTokens = usage.input_tokens || 0;
-      const outputTokens = usage.output_tokens || 0;
-      const cacheReadTokens = usage.cache_read_input_tokens || 0;
-      const cacheCreateTokens = usage.cache_creation_input_tokens || 0;
+      const usage = response.usage;
+      const inputTokens = usage?.prompt_tokens || 0;
+      const outputTokens = usage?.completion_tokens || 0;
 
       recordCall(
         model,
@@ -319,8 +300,6 @@ export async function createMessage(
         accountId || null,
         inputTokens,
         outputTokens,
-        cacheReadTokens,
-        cacheCreateTokens,
         Date.now() - startTime,
         true,
         null,
@@ -335,18 +314,11 @@ export async function createMessage(
       lastError = error;
       const category = getRetryCategory(error);
 
-      if (!category) {
-        // Non-retryable error — fail immediately
-        break;
-      }
+      if (!category) break;
 
       const config = RETRY_CONFIGS[category];
-      if (attempt >= config.maxRetries) {
-        // Exhausted retries for this category
-        break;
-      }
+      if (attempt >= config.maxRetries) break;
 
-      // Calculate delay with exponential backoff + jitter
       const baseDelay = Math.min(config.initialDelayMs * Math.pow(2, attempt), config.maxDelayMs);
       const jitter = baseDelay * 0.1 * Math.random();
       const delay = baseDelay + jitter;
@@ -363,7 +335,6 @@ export async function createMessage(
         "LLM call failed, retrying",
       );
 
-      // Non-blocking sleep
       await asyncSleep(delay);
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -377,8 +348,6 @@ export async function createMessage(
     caller,
     emailId || null,
     accountId || null,
-    0,
-    0,
     0,
     0,
     Date.now() - startTime,

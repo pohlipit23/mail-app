@@ -46,7 +46,7 @@ export class DraftGenerator {
   private prompt: string;
 
   constructor(
-    model: string = "claude-sonnet-4-20250514",
+    model: string = "glm-5.1",
     prompt: string = DEFAULT_DRAFT_PROMPT,
     calendaringModel?: string,
   ) {
@@ -109,8 +109,8 @@ Do NOT propose specific times yourself - defer to the assistant.`;
       {
         model: this.model,
         max_tokens: 1024,
-        system: [{ type: "text", text: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` }],
         messages: [
+          { role: "system", content: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` },
           {
             role: "user",
             content: `${senderContext}
@@ -130,13 +130,13 @@ ${wrapUntrustedEmail(`From: ${email.from}\nTo: ${email.to}\nSubject: ${email.sub
       { caller: "draft-generator", emailId: email.id },
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
     return {
-      body: textBlock.text.trim(),
+      body: text.trim(),
       cc: cc.length > 0 ? cc : undefined,
       calendaringResult,
     };
@@ -174,10 +174,10 @@ ${profile.summary}
         model: this.model,
         max_tokens: 1024,
         messages: [
+          { role: "system", content: this.prompt },
           {
             role: "user",
-            content: `${this.prompt}
-${recipientContext}
+            content: `${recipientContext}
 ---
 Compose a new email (not a reply to an existing thread).
 
@@ -192,12 +192,12 @@ ${instructions}`,
       { caller: "draft-generator-compose" },
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
-    return { body: textBlock.text.trim() };
+    return { body: text.trim() };
   }
 
   async generateForward(
@@ -234,8 +234,8 @@ ${profile.summary}
       {
         model: this.model,
         max_tokens: 1024,
-        system: [{ type: "text", text: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` }],
         messages: [
+          { role: "system", content: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` },
           {
             role: "user",
             content: `${recipientContext}
@@ -255,12 +255,12 @@ ${wrapUntrustedEmail(`From: ${email.from}\nTo: ${email.to}\nSubject: ${email.sub
       { caller: "draft-generator-forward", emailId: email.id },
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
-    return { body: textBlock.text.trim(), subject };
+    return { body: text.trim(), subject };
   }
 
   async createDraft(

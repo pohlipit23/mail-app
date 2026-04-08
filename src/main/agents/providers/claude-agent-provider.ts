@@ -356,8 +356,8 @@ export class ClaudeAgentProvider implements AgentProvider {
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined) env[key] = value;
     }
-    if (this.frameworkConfig.anthropicApiKey) {
-      env.ANTHROPIC_API_KEY = this.frameworkConfig.anthropicApiKey;
+    if (this.frameworkConfig.zaiApiKey) {
+      env.ANTHROPIC_API_KEY = this.frameworkConfig.zaiApiKey;
     } else {
       delete env.ANTHROPIC_API_KEY;
     }

@@ -294,7 +294,7 @@ async function analyzeOverride(override: AnalysisOverride): Promise<AnalysisObse
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-20250514",
+      model: "glm-5.1",
       max_tokens: 2048,
       messages: [
         {
@@ -344,8 +344,7 @@ Respond with ONLY the JSON array.`,
     },
   );
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  const text = textBlock?.type === "text" ? textBlock.text : "";
+  const text = response.choices[0]?.message?.content || "";
 
   const parsed = parseJsonArray<{
     scope: string;
@@ -390,7 +389,7 @@ async function matchAnalysisDraftMemories(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "glm-5.1",
       max_tokens: 1024,
       messages: [
         {
@@ -411,7 +410,7 @@ Respond with ONLY a JSON array: [{"observationIndex": 0, "matchedDraftMemoryId":
     { caller: "analysis-edit-learner-match" },
   );
 
-  const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+  const text = response.choices[0]?.message?.content || "";
   const parsed = parseJsonArray<{
     observationIndex: number;
     matchedDraftMemoryId: string | null;
@@ -446,7 +445,7 @@ async function classifyScope(
 
   const response = await createMessage(
     {
-      model: "claude-haiku-4-5-20251001",
+      model: "glm-5.1",
       max_tokens: 256,
       messages: [
         {
@@ -473,7 +472,7 @@ For global: scopeValue = null`,
     { caller: "analysis-edit-learner-classify-scope" },
   );
 
-  const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+  const text = response.choices[0]?.message?.content || "";
   try {
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}");

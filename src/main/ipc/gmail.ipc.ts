@@ -70,7 +70,7 @@ export function registerGmailIpc(): void {
 
       try {
         const client = new GmailClient();
-        const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || getConfig().anthropicApiKey);
+        const hasAnthropicKey = !!(process.env.ZAI_API_KEY || getConfig().zaiApiKey);
         return {
           success: true,
           data: {

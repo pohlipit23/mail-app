@@ -50,7 +50,7 @@ function getStore(): Store<{ config: Config }> {
       defaults: {
         config: {
           maxEmails: 50,
-          model: "claude-sonnet-4-20250514",
+          model: "glm-5.1",
           modelConfig: DEFAULT_MODEL_CONFIG,
           dryRun: false,
           analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
@@ -98,7 +98,7 @@ export function getConfig(): Config {
 
   // One-time migration: if user had a custom legacy `model` but no `modelConfig`,
   // map it to a per-feature config so the previous choice isn't silently dropped.
-  if (!config.modelConfig && config.model && config.model !== "claude-sonnet-4-20250514") {
+  if (!config.modelConfig && config.model && config.model !== "glm-5.1") {
     const legacyTier =
       (Object.entries(MODEL_TIER_IDS) as [ModelTier, string][]).find(
         ([, id]) => id === config.model,
@@ -131,40 +131,34 @@ export function getModelIdForFeature(feature: keyof ModelConfig): string {
 }
 
 export function registerSettingsIpc(): void {
-  // Validate an Anthropic API key with a minimal API call
+  // Validate a Z.AI API key with a minimal API call
   ipcMain.handle(
     "settings:validate-api-key",
     async (_, { apiKey }: { apiKey: string }): Promise<IpcResponse<void>> => {
       try {
-        const Anthropic = (await import("@anthropic-ai/sdk")).default;
+        const OpenAI = (await import("openai")).default;
 
-        // Resolve model with fallback so config errors don't block validation
-        let model: string;
-        try {
-          model = getModelIdForFeature("senderLookup");
-        } catch {
-          model = "claude-haiku-4-5-20251001";
-        }
-
-        const client = new Anthropic({ apiKey, timeout: 10_000 });
-        await client.messages.create({
-          model,
+        const client = new OpenAI({
+          apiKey,
+          baseURL: "https://api.z.ai/api/paas/v4",
+          timeout: 10_000,
+        });
+        await client.chat.completions.create({
+          model: "glm-5.1",
           max_tokens: 1,
           messages: [{ role: "user", content: "hi" }],
         });
         return { success: true, data: undefined };
       } catch (error) {
-        // Need Anthropic class for instanceof checks — safe to re-import (module cache)
-        const Anthropic = (await import("@anthropic-ai/sdk")).default;
-        if (error instanceof Anthropic.AuthenticationError) {
+        const OpenAI = (await import("openai")).default;
+        if (error instanceof OpenAI.AuthenticationError) {
           return { success: false, error: "Invalid API key. Please check and try again." };
         }
-        // Rate limiting, overload (529), and permission denied (403) all happen after
-        // auth succeeds — the key is valid even if this specific request was rejected
+        // Rate limiting and server errors happen after auth succeeds — key is valid
         if (
-          error instanceof Anthropic.RateLimitError ||
-          error instanceof Anthropic.PermissionDeniedError ||
-          (error instanceof Anthropic.APIError && error.status === 529)
+          error instanceof OpenAI.RateLimitError ||
+          error instanceof OpenAI.PermissionDeniedError ||
+          (error instanceof OpenAI.APIError && (error as { status?: number }).status === 529)
         ) {
           return { success: true, data: undefined };
         }
@@ -207,16 +201,16 @@ export function registerSettingsIpc(): void {
         autoUpdateService.setAllowPrerelease(!!newConfig.allowPrereleaseUpdates);
       }
 
-      // If anthropicApiKey changed, propagate to process.env (for Anthropic SDK)
+      // If zaiApiKey changed, propagate to process.env (for Anthropic SDK)
       // and to the agent worker (for Claude Agent SDK)
-      if ("anthropicApiKey" in config) {
-        if (newConfig.anthropicApiKey) {
-          process.env.ANTHROPIC_API_KEY = newConfig.anthropicApiKey;
+      if ("zaiApiKey" in config) {
+        if (newConfig.zaiApiKey) {
+          process.env.ZAI_API_KEY = newConfig.zaiApiKey;
         } else {
-          delete process.env.ANTHROPIC_API_KEY;
+          delete process.env.ZAI_API_KEY;
         }
         agentCoordinator.updateConfig({
-          anthropicApiKey: newConfig.anthropicApiKey || undefined,
+          zaiApiKey: newConfig.zaiApiKey || undefined,
         });
       }
 
@@ -285,7 +279,7 @@ export function registerSettingsIpc(): void {
 
       // Reset cached analyzer/service instances when model config or API key changes,
       // since they hold Anthropic client instances that capture the key at construction.
-      if ("modelConfig" in config || "anthropicApiKey" in config) {
+      if ("modelConfig" in config || "zaiApiKey" in config) {
         resetClient();
         resetAnalyzer();
         resetArchiveReadyAnalyzer();

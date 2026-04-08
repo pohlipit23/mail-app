@@ -126,7 +126,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       }
 
       const result = (await window.api.settings.set({
-        anthropicApiKey: apiKey.trim(),
+        zaiApiKey: apiKey.trim(),
       })) as IpcResponse<void>;
       if (result.success) {
         const authResult = (await window.api.gmail.checkAuth()) as IpcResponse<{
