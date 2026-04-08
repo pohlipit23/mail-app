@@ -155,7 +155,7 @@ export type NetFetchProxyFn = (
 
 export interface AgentFrameworkConfig {
   model: string;
-  anthropicApiKey?: string;
+  zaiApiKey?: string;
   providers?: Record<string, ProviderSettings>;
   browserConfig?: {
     enabled: boolean;

@@ -16,7 +16,7 @@ export class CalendaringAgent {
   private model: string;
   private prompt: string;
 
-  constructor(model: string = "claude-sonnet-4-20250514", prompt?: string) {
+  constructor(model: string = "glm-5.1", prompt?: string) {
     this.model = model;
     this.prompt = prompt || DEFAULT_CALENDARING_PROMPT;
   }
@@ -26,8 +26,8 @@ export class CalendaringAgent {
       {
         model: this.model,
         max_tokens: 512,
-        system: [{ type: "text", text: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` }],
         messages: [
+          { role: "system", content: `${this.prompt}\n\n${UNTRUSTED_DATA_INSTRUCTION}` },
           {
             role: "user",
             content: `EMAIL TO ANALYZE:
@@ -39,13 +39,13 @@ ${wrapUntrustedEmail(`From: ${email.from}\nTo: ${email.to}\nSubject: ${email.sub
       { caller: "calendaring-agent", emailId: email.id },
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
     try {
-      const parsed = JSON.parse(stripJsonFences(textBlock.text));
+      const parsed = JSON.parse(stripJsonFences(text));
       return {
         hasSchedulingContext: Boolean(parsed.hasSchedulingContext),
         action: parsed.action || "none",
@@ -53,7 +53,7 @@ ${wrapUntrustedEmail(`From: ${email.from}\nTo: ${email.to}\nSubject: ${email.sub
       };
     } catch {
       // If JSON parsing fails, return a default
-      log.error({ err: textBlock.text }, "Failed to parse calendaring response");
+      log.error({ err: text }, "Failed to parse calendaring response");
       return {
         hasSchedulingContext: false,
         action: "none",

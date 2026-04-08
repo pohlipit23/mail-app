@@ -188,7 +188,7 @@ export function registerMemoryIpc(): void {
       try {
         const response = await createMessage(
           {
-            model: "claude-haiku-4-5-20251001", // simple JSON classification — always haiku, independent of user model config
+            model: "glm-5.1",
             max_tokens: 256,
             messages: [
               {
@@ -211,7 +211,7 @@ Respond in JSON only: {"scope":"...","scopeValue":"...","content":"..."}`,
           { caller: "memory-classify" },
         );
 
-        const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+        const text = response.choices[0]?.message?.content || "";
         // Extract JSON object — find the first { and match to its closing }
         const jsonStart = text.indexOf("{");
         if (jsonStart === -1) {

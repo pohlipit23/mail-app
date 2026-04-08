@@ -11,6 +11,7 @@
  */
 import { randomUUID } from "crypto";
 import { createMessage, getClient, recordStreamingCall } from "./anthropic-service";
+import type { ChatCompletion } from "openai/resources/chat/completions";
 import {
   getThreadDraftBody,
   getDraftMemories,
@@ -164,8 +165,8 @@ async function analyzeDraftEdit(params: {
 
   const client = getClient();
   const streamStartTime = Date.now();
-  const stream = client.messages.stream({
-    model: "claude-opus-4-20250514",
+  const response: ChatCompletion = await client.chat.completions.create({
+    model: "glm-5.1",
     max_tokens: 16000,
     thinking: {
       type: "enabled",
@@ -263,28 +264,21 @@ Each item: {"scope":"...","scopeValue":"...","content":"...","emailContext":"bri
 Respond with ONLY the JSON array, no other text.`,
       },
     ],
-  });
-  const response = await stream.finalMessage();
+  } as Record<string, unknown>);
 
-  // Record streaming call cost
-  const streamUsage = response.usage as unknown as Record<string, number>;
+  // Record call cost
+  const usage = response.usage;
   recordStreamingCall(
-    "claude-opus-4-20250514",
+    "glm-5.1",
     "draft-edit-learner-analyze",
-    streamUsage,
+    {
+      prompt_tokens: usage?.prompt_tokens || 0,
+      completion_tokens: usage?.completion_tokens || 0,
+    },
     Date.now() - streamStartTime,
   );
 
-  // Log thinking if present
-  const thinkingBlock = response.content.find((b) => b.type === "thinking");
-  if (thinkingBlock?.type === "thinking") {
-    log.info(
-      `[DraftEditLearner] === THINKING ===\n${thinkingBlock.thinking}\n[DraftEditLearner] === END THINKING ===`,
-    );
-  }
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  const text = textBlock?.type === "text" ? textBlock.text : "";
+  const text = response.choices[0]?.message?.content || "";
   log.info(`[DraftEditLearner] Raw response: ${text}`);
 
   // Parse JSON array from response
@@ -333,7 +327,7 @@ async function matchDraftMemories(
 ): Promise<Array<{ observationIndex: number; matchedDraftMemoryId: string | null }>> {
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "glm-5.1",
       max_tokens: 1024,
       messages: [
         {
@@ -406,7 +400,7 @@ export async function filterAgainstPromotedMemories(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "glm-5.1",
       max_tokens: 1024,
       messages: [
         {
@@ -504,7 +498,7 @@ export async function consolidateMemoryScopes(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "glm-5.1",
       max_tokens: 1024,
       messages: [
         {

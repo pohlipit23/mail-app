@@ -121,8 +121,8 @@ export function registerDraftsIpc(): void {
           {
             model: getModelIdForFeature("refinement"),
             max_tokens: 1024,
-            system: [{ type: "text", text: UNTRUSTED_DATA_INSTRUCTION }],
             messages: [
+              { role: "system", content: UNTRUSTED_DATA_INSTRUCTION },
               {
                 role: "user",
                 content: `Refine this email draft based on the feedback provided.
@@ -148,12 +148,12 @@ FORMATTING: Write plain text paragraphs separated by blank lines. Do NOT use HTM
           { caller: "drafts-refine", emailId, accountId: email.accountId },
         );
 
-        const textBlock = response.content.find((block) => block.type === "text");
-        if (!textBlock || textBlock.type !== "text") {
-          throw new Error("No text response from Claude");
+        const text = response.choices[0]?.message?.content;
+        if (!text) {
+          throw new Error("No text response from LLM");
         }
 
-        const refinedDraft = textBlock.text.trim();
+        const refinedDraft = text.trim();
 
         // Save refined draft and sync to Gmail
         saveDraftAndSync(emailId, refinedDraft, "edited");

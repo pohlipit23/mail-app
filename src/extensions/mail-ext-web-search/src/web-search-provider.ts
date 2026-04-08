@@ -1,4 +1,4 @@
-import { createMessage } from "../../../main/services/anthropic-service";
+import { createMessage, getClient } from "../../../main/services/anthropic-service";
 import type {
   ExtensionContext,
   EnrichmentProvider,
@@ -240,33 +240,45 @@ export function createWebSearchProvider(
       }
 
       try {
-        // Use Claude with web search to find information
+        // Two-step approach: (1) GLM web search API, (2) summarize with LLM
         const searchQuery = buildSearchQuery(senderName, realSenderEmail);
 
+        // Step 1: Use GLM's web search endpoint to get search results
+        const client = getClient();
+        const searchResponse = await (client as unknown as { baseURL: string }).baseURL
+          ? fetch("https://api.z.ai/api/paas/v4/web_search", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.ZAI_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: "web-search-pro",
+                messages: [{ role: "user", content: searchQuery }],
+                search_result_count: 5,
+                search_result_content: "medium",
+              }),
+            }).then((r) => r.json())
+          : { choices: [{ message: { content: "No results" } }] };
+
+        const searchContent =
+          (searchResponse as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]
+            ?.message?.content || "No search results found.";
+
+        // Step 2: Summarize search results into structured profile
         const response = await createMessage(
           {
             model: getModelId(),
-            max_tokens: 200, // Responses are ~100 tokens
-            tools: [
-              {
-                type: "web_search_20250305",
-                name: "web_search",
-                max_uses: 1, // 1 search is usually enough
-              },
-            ],
+            max_tokens: 200,
             messages: [
               {
                 role: "user",
-                content: `I received an email from "${senderName}" with email address "${realSenderEmail}".
+                content: `Based on the following web search results about "${senderName}" (${realSenderEmail}), extract a profile.
 
-Please search the web to find information about who this person is. Look for:
-- Their professional role/title
-- Their company or organization
-- Any relevant background that would help me write a better reply
+SEARCH RESULTS:
+${searchContent}
 
-Search query to start with: ${searchQuery}
-
-After searching, respond with ONLY valid JSON (no markdown):
+Respond with ONLY valid JSON (no markdown):
 {
   "name": "Full name",
   "summary": "2-3 sentence summary of who they are",
@@ -275,7 +287,7 @@ After searching, respond with ONLY valid JSON (no markdown):
   "linkedinUrl": "LinkedIn URL if found"
 }
 
-If you can't find specific information, return:
+If the search results don't contain relevant information, return:
 {
   "name": "${senderName}",
   "summary": "No public information found for this person."
@@ -287,12 +299,7 @@ If you can't find specific information, return:
         );
 
         // Extract the text response
-        let jsonText = "";
-        for (const block of response.content) {
-          if (block.type === "text") {
-            jsonText += block.text;
-          }
-        }
+        const jsonText = response.choices[0]?.message?.content || "";
 
         // Parse the JSON response - handle various formats Claude might return
         const profileData = parseProfileResponse(jsonText, senderName, context);

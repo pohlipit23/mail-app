@@ -17,7 +17,7 @@ export class ArchiveReadyAnalyzer {
   private model: string;
   private customPrompt: string | null;
 
-  constructor(model: string = "claude-sonnet-4-20250514", prompt?: string) {
+  constructor(model: string = "glm-5.1", prompt?: string) {
     this.model = model;
     this.customPrompt = prompt && prompt !== DEFAULT_ARCHIVE_READY_PROMPT ? prompt : null;
   }
@@ -37,14 +37,11 @@ export class ArchiveReadyAnalyzer {
       {
         model: this.model,
         max_tokens: 256,
-        system: [
-          {
-            type: "text",
-            text: systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
         messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
           {
             role: "user",
             content: threadContent,
@@ -54,22 +51,21 @@ export class ArchiveReadyAnalyzer {
       { caller: "archive-ready-analyzer" },
     );
 
-    // Log cache performance
-    const usage = response.usage as unknown as Record<string, number>;
+    const usage = response.usage;
     log.info(
-      `[ArchiveReady] Usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cache_read=${usage.cache_read_input_tokens || 0}, cache_create=${usage.cache_creation_input_tokens || 0}`,
+      `[ArchiveReady] Usage: input=${usage?.prompt_tokens || 0}, output=${usage?.completion_tokens || 0}`,
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
     try {
-      const parsed = JSON.parse(stripJsonFences(textBlock.text));
+      const parsed = JSON.parse(stripJsonFences(text));
       return ArchiveReadyResultSchema.parse(parsed);
     } catch (_error) {
-      log.error({ responseText: textBlock.text }, "Failed to parse archive-ready response");
+      log.error({ responseText: text }, "Failed to parse archive-ready response");
       return {
         archive_ready: false,
         reason: "Failed to parse analysis - keeping in inbox for safety",

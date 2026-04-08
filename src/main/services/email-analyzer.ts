@@ -140,7 +140,7 @@ export class EmailAnalyzer {
   private model: string;
   private customPrompt: string | null;
 
-  constructor(model: string = "claude-sonnet-4-20250514", prompt?: string) {
+  constructor(model: string = "glm-5.1", prompt?: string) {
     this.model = model;
     // Only use custom prompt if it differs from default
     this.customPrompt = prompt && prompt !== DEFAULT_ANALYSIS_PROMPT ? prompt : null;
@@ -167,19 +167,15 @@ export class EmailAnalyzer {
       analysisMemoryContext = buildCtx(senderEmail, accountId);
     }
 
-    // Prompt caching enabled via cache_control (requires 1024+ tokens in system)
     const response = await createMessage(
       {
         model: this.model,
         max_tokens: 256,
-        system: [
-          {
-            type: "text",
-            text: systemPrompt,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
         messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
           {
             role: "user",
             content: `${UNTRUSTED_DATA_INSTRUCTION}
@@ -191,22 +187,21 @@ ${userIdentityLine}${wrapUntrustedEmail(`From: ${email.from}\nTo: ${email.to}\nS
       { caller: "email-analyzer", emailId: email.id, accountId },
     );
 
-    // Log cache performance
-    const usage = response.usage as unknown as Record<string, number>;
+    const usage = response.usage;
     log.info(
-      `[Analyzer] Usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cache_read=${usage.cache_read_input_tokens || 0}, cache_create=${usage.cache_creation_input_tokens || 0}`,
+      `[Analyzer] Usage: input=${usage?.prompt_tokens || 0}, output=${usage?.completion_tokens || 0}`,
     );
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from Claude");
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from LLM");
     }
 
     try {
-      const parsed = JSON.parse(stripJsonFences(textBlock.text));
+      const parsed = JSON.parse(stripJsonFences(text));
       return AnalysisResultSchema.parse(parsed);
     } catch (_error) {
-      log.error({ err: textBlock.text }, "Failed to parse analysis response");
+      log.error({ err: text }, "Failed to parse analysis response");
       // Default to not needing reply if parsing fails
       return {
         needs_reply: false,

@@ -311,21 +311,19 @@ export const MODEL_TIERS = ["haiku", "sonnet", "opus"] as const;
 export const ModelTierSchema = z.enum(["haiku", "sonnet", "opus"]);
 export type ModelTier = z.infer<typeof ModelTierSchema>;
 
-// Centralized mapping from tier to model ID. Update these when new model versions ship.
-// Note: sonnet maps to 4.5 (not the legacy 4.0 default) — this is an intentional upgrade.
-// Opus uses the non-date-stamped alias because no pinned snapshot is available yet for 4.6.
-// Pin to a date-stamped ID (e.g. "claude-opus-4-6-YYYYMMDD") once Anthropic publishes one.
+// All tiers map to GLM-5.1 — Z.AI's single model covers all use cases.
+// The tier abstraction is kept for UI consistency and future model variants.
 export const MODEL_TIER_IDS: Record<ModelTier, string> = {
-  haiku: "claude-haiku-4-5-20251001",
-  sonnet: "claude-sonnet-4-5-20250929",
-  opus: "claude-opus-4-6",
+  haiku: "glm-5.1",
+  sonnet: "glm-5.1",
+  opus: "glm-5.1",
 };
 
 // Display labels for the UI
 export const MODEL_TIER_LABELS: Record<ModelTier, string> = {
-  haiku: "Haiku (fast, lightweight)",
-  sonnet: "Sonnet (balanced)",
-  opus: "Opus (most capable)",
+  haiku: "GLM-5.1 (fast)",
+  sonnet: "GLM-5.1 (balanced)",
+  opus: "GLM-5.1 (full)",
 };
 
 // Per-feature model configuration
@@ -363,10 +361,10 @@ export const ConfigSchema = z.object({
   maxEmails: z.number().default(50),
   // Legacy field — no longer drives any AI calls. All features now use modelConfig
   // via getModelIdForFeature(). Kept in the schema so existing config files parse without error.
-  model: z.string().default("claude-sonnet-4-20250514"),
+  model: z.string().default("glm-5.1"),
   modelConfig: ModelConfigSchema.optional(),
   dryRun: z.boolean().default(false),
-  anthropicApiKey: z.string().optional(),
+  zaiApiKey: z.string().optional(),
   analysisPrompt: z.string().default(DEFAULT_ANALYSIS_PROMPT),
   draftPrompt: z.string().default(DEFAULT_DRAFT_PROMPT),
   ea: EAConfigSchema.optional(),

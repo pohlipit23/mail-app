@@ -112,7 +112,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [eaError, setEaError] = useState<string | null>(null);
 
   // Agent authentication state
-  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [zaiApiKey, setZaiApiKey] = useState("");
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const [claudeCliAvailable, setClaudeCliAvailable] = useState(false);
@@ -228,7 +228,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...generalConfig.modelConfig });
       setGithubToken(generalConfig.githubToken ?? "");
       setAllowPrereleaseUpdates(generalConfig.allowPrereleaseUpdates ?? false);
-      setAnthropicApiKey(generalConfig.anthropicApiKey ?? "");
+      setZaiApiKey(generalConfig.zaiApiKey ?? "");
       const browser = generalConfig.agentBrowser;
       if (browser) {
         setBrowserEnabled(browser.enabled);
@@ -562,7 +562,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setIsSavingApiKey(true);
     setApiKeySaved(false);
     try {
-      await window.api.settings.set({ anthropicApiKey: anthropicApiKey || undefined });
+      await window.api.settings.set({ zaiApiKey: zaiApiKey || undefined });
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
       setApiKeySaved(true);
       setTimeout(() => setApiKeySaved(false), 3000);
@@ -2469,8 +2469,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="flex gap-2">
                   <input
                     type="password"
-                    value={anthropicApiKey}
-                    onChange={(e) => setAnthropicApiKey(e.target.value)}
+                    value={zaiApiKey}
+                    onChange={(e) => setZaiApiKey(e.target.value)}
                     placeholder="sk-ant-..."
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
                   />

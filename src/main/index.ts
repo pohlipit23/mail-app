@@ -393,12 +393,12 @@ const _db = initDatabase();
 import { setAnthropicServiceDb } from "./services/anthropic-service";
 setAnthropicServiceDb(_db);
 
-// If no ANTHROPIC_API_KEY in env (e.g. packaged app with no .env), read from stored config
+// If no ZAI_API_KEY in env (e.g. packaged app with no .env), read from stored config
 // so that services using `new Anthropic()` pick it up automatically.
 {
   const config = getConfig();
-  if (!process.env.ANTHROPIC_API_KEY && config.anthropicApiKey) {
-    process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+  if (!process.env.ZAI_API_KEY && config.zaiApiKey) {
+    process.env.ZAI_API_KEY = config.zaiApiKey;
   }
 }
 
