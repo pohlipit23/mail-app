@@ -805,10 +805,6 @@ export function registerSettingsIpc(): void {
   // Export logs: zip the log directory and prompt the user to save
   ipcMain.handle("settings:export-logs", async (): Promise<IpcResponse<void>> => {
     try {
-      if (process.platform !== "darwin") {
-        return { success: false, error: "Log export is currently only supported on macOS." };
-      }
-
       const { join } = await import("path");
       const { readdirSync, mkdirSync } = await import("fs");
       const { execFile } = await import("child_process");
@@ -832,20 +828,34 @@ export function registerSettingsIpc(): void {
         return { success: true, data: undefined };
       }
 
-      // Use macOS ditto to create a zip of the logs directory
+      // Use platform-appropriate zip command:
+      // macOS: ditto (built-in, handles resource forks)
+      // Linux/WSL: zip (standard, install via apt)
       await new Promise<void>((resolve, reject) => {
-        execFile(
-          "ditto",
-          ["-c", "-k", "--sequesterRsrc", logDir, filePath],
-          { timeout: 30_000 },
-          (error) => {
-            if (error) reject(error);
-            else resolve();
-          },
-        );
+        if (process.platform === "darwin") {
+          execFile(
+            "ditto",
+            ["-c", "-k", "--sequesterRsrc", logDir, filePath],
+            { timeout: 30_000 },
+            (error) => {
+              if (error) reject(error);
+              else resolve();
+            },
+          );
+        } else {
+          // On Linux/WSL, zip from inside the log directory so paths are relative
+          execFile(
+            "zip",
+            ["-j", filePath, ...logFiles.map((f) => join(logDir, f))],
+            { timeout: 30_000 },
+            (error) => {
+              if (error) reject(new Error(`zip failed: ${error.message}. Install with: sudo apt install zip`));
+              else resolve();
+            },
+          );
+        }
       });
 
-      // Reveal the exported file in Finder
       shell.showItemInFolder(filePath);
 
       return { success: true, data: undefined };

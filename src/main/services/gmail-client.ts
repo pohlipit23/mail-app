@@ -5,8 +5,8 @@ import { readFile, writeFile, readdir, copyFile, access } from "fs/promises";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { shell } from "electron";
 import { createTransport } from "nodemailer";
+import { openExternal } from "./wsl";
 import type Mail from "nodemailer/lib/mailer";
 import type {
   Email,
@@ -311,8 +311,8 @@ export class GmailClient {
     log.info(authUrl);
     log.info("");
 
-    // Open browser using Electron's shell
-    await shell.openExternal(authUrl);
+    // Open browser — routes through Windows host browser when running under WSL
+    await openExternal(authUrl);
 
     // Start local server to receive callback
     const code = await new Promise<string>((resolve, reject) => {

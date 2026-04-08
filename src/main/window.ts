@@ -1,4 +1,5 @@
-import { BrowserWindow, shell, nativeTheme, app } from "electron";
+import { BrowserWindow, nativeTheme, app } from "electron";
+import { openExternal } from "./services/wsl";
 import { join } from "path";
 import { is } from "@electron-toolkit/utils";
 import { getConfig } from "./ipc/settings.ipc";
@@ -79,7 +80,7 @@ export function createWindow(): BrowserWindow {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    openExternal(details.url);
     return { action: "deny" };
   });
 
