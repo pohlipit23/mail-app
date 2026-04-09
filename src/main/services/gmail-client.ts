@@ -1,4 +1,5 @@
-import { google, type gmail_v1 } from "googleapis";
+import { gmail as gmailApi, type gmail_v1 } from "@googleapis/gmail";
+import { oauth2 as oauth2Api } from "@googleapis/oauth2";
 import { OAuth2Client } from "google-auth-library";
 import { createServer, type Server } from "http";
 import { readFile, writeFile, readdir, copyFile, access } from "fs/promises";
@@ -137,7 +138,7 @@ export function isAuthError(error: unknown): boolean {
 
 export class GmailClient {
   private oauth2Client: OAuth2Client | null = null;
-  private gmail: ReturnType<typeof google.gmail> | null = null;
+  private gmail: ReturnType<typeof gmailApi> | null = null;
   private lastHistoryId: string | null = null;
   private accountId: string; // For multi-account support
   private cachedAccountInfo: { email: string; displayName: string | null } | null | undefined =
@@ -203,7 +204,7 @@ export class GmailClient {
     const tokens = await this.loadOrRefreshTokens();
     this.oauth2Client.setCredentials(tokens);
 
-    this.gmail = google.gmail({ version: "v1", auth: this.oauth2Client });
+    this.gmail = gmailApi({ version: "v1", auth: this.oauth2Client });
     log.info("Connected to Gmail API");
   }
 
@@ -437,7 +438,7 @@ export class GmailClient {
     }
     const tokens = await this.doOAuthFlow();
     this.oauth2Client.setCredentials(tokens);
-    this.gmail = google.gmail({ version: "v1", auth: this.oauth2Client });
+    this.gmail = gmailApi({ version: "v1", auth: this.oauth2Client });
     log.info(`[Gmail] Re-authenticated account ${this.accountId}`);
   }
 
@@ -1551,7 +1552,7 @@ export class GmailClient {
 
       // Last resort: fetch name from OAuth2 userinfo (requires userinfo.profile scope)
       try {
-        const oauth2 = google.oauth2({ version: "v2", auth: this.oauth2Client! });
+        const oauth2 = oauth2Api({ version: "v2", auth: this.oauth2Client! });
         const userInfo = await oauth2.userinfo.get();
         const name = userInfo.data.name?.trim() || null;
         if (name) {

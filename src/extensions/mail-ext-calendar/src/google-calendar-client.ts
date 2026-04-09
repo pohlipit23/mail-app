@@ -2,7 +2,7 @@
  * Google Calendar API client.
  * Reuses OAuth2 credentials from the mail client's Gmail auth.
  */
-import { google, type calendar_v3 } from "googleapis";
+import { calendar as calendarApi, type calendar_v3 } from "@googleapis/calendar";
 import { OAuth2Client } from "google-auth-library";
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
@@ -164,7 +164,7 @@ export async function getCalendarList(accountId: string): Promise<CalendarInfo[]
   const auth = await getOAuth2Client(accountId);
   if (!auth) return [];
 
-  const calendar = google.calendar({ version: "v3", auth });
+  const calendar = calendarApi({ version: "v3", auth });
   const response = await calendar.calendarList.list();
   const result: CalendarInfo[] = [];
   for (const cal of response.data.items || []) {
@@ -198,7 +198,7 @@ export async function syncCalendarEvents(
     return { events: [], deletedIds: [], nextSyncToken: null, fullSyncRequired: false };
   }
 
-  const calendar = google.calendar({ version: "v3", auth });
+  const calendar = calendarApi({ version: "v3", auth });
   const events: CalendarEvent[] = [];
   const deletedIds: string[] = [];
   let pageToken: string | undefined;
@@ -269,7 +269,7 @@ export async function getEventsForDate(
   const auth = await getOAuth2Client(accountId);
   if (!auth) return [];
 
-  const calendar = google.calendar({ version: "v3", auth });
+  const calendar = calendarApi({ version: "v3", auth });
 
   // Fix: use explicit date component construction to avoid timezone issues
   const [year, month, day] = dateStr.split("-").map(Number);
